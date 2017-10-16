@@ -1,8 +1,8 @@
 ###
-# Based on cernphsft/systemuser:v2.9
+# Based on cernphsft/systemuser:v2.10
 # Implements the extra-save for Notebooks on the host
 #
-# Please, build with `docker build -t cernphsft/systemuser:v2.9b -f extra_save.Dockerfile .`
+# Please, build with `docker build -t cernphsft/systemuser:v2.10b -f extra_save.Dockerfile .`
 ###
 
 FROM cernphsft/systemuser:v2.10
