@@ -5,7 +5,6 @@ Utilities for file-based Contents/Checkpoints managers.
 # Copyright (c) Jupyter Development Team.
 # Distributed under the terms of the Modified BSD License.
 
-import base64
 from contextlib import contextmanager
 import errno
 import io
@@ -25,6 +24,25 @@ from ipython_genutils.py3compat import str_to_unicode
 from traitlets.config import Configurable
 from traitlets import Bool
 
+try: #PY3
+    from base64 import encodebytes, decodebytes
+except ImportError: #PY2
+    from base64 import encodestring as encodebytes, decodestring as decodebytes
+
+
+def replace_file(src, dst):
+    """ replace dst with src
+
+    switches between os.replace or os.rename based on python 2.7 or python 3
+    """
+    if hasattr(os, 'replace'): # PY3
+        os.replace(src, dst)
+    else:
+        if os.name == 'nt' and os.path.exists(dst):
+            # Rename over existing file doesn't work on Windows
+            os.remove(dst)
+        os.rename(src, dst)
+
 def copy2_safe(src, dst, log=None):
     """copy src to dst
 
@@ -37,6 +55,17 @@ def copy2_safe(src, dst, log=None):
         if log:
             log.debug("copystat on %s failed", dst, exc_info=True)
 
+def path_to_intermediate(path):
+    '''Name of the intermediate file used in atomic writes.
+
+    The .~ prefix will make Dropbox ignore the temporary file.'''
+    dirname, basename = os.path.split(path)
+    return os.path.join(dirname, '.~'+basename)
+
+def path_to_invalid(path):
+    '''Name of invalid file after a failed atomic write and subsequent read.'''
+    dirname, basename = os.path.split(path)
+    return os.path.join(dirname, basename+'.invalid')
 
 @contextmanager
 def atomic_writing(path, text=True, encoding='utf-8', log=None, **kwargs):
@@ -68,9 +97,8 @@ def atomic_writing(path, text=True, encoding='utf-8', log=None, **kwargs):
     if os.path.islink(path):
         path = os.path.join(os.path.dirname(path), os.readlink(path))
 
-    dirname, basename = os.path.split(path)
-    # The .~ prefix will make Dropbox ignore the temporary file.
-    tmp_path = os.path.join(dirname, '.~'+basename)
+    tmp_path = path_to_intermediate(path)
+
     if os.path.isfile(path):
         copy2_safe(path, tmp_path, log=log)
 
@@ -86,10 +114,7 @@ def atomic_writing(path, text=True, encoding='utf-8', log=None, **kwargs):
     except:
         # Failed! Move the backup file back to the real path to avoid corruption
         fileobj.close()
-        if os.name == 'nt' and os.path.exists(path):
-            # Rename over existing file doesn't work on Windows
-            os.remove(path)
-        os.rename(tmp_path, path)
+        replace_file(tmp_path, path)
         raise
 
     # Flush to disk
@@ -238,6 +263,33 @@ class FileManagerMixin(Configurable):
             raise HTTPError(404, "%s is outside root contents directory" % path)
         return os_path
 
+    '''
+    # THIS IS THE OFF-THE-SHELF VERSION #
+    def _read_notebook(self, os_path, as_version=4):
+        """Read a notebook from an os path."""
+        with self.open(os_path, 'r', encoding='utf-8') as f:
+            try:
+                return nbformat.read(f, as_version=as_version)
+            except Exception as e:
+                e_orig = e
+
+            # If use_atomic_writing is enabled, we'll guess that it was also
+            # enabled when this notebook was written and look for a valid
+            # atomic intermediate.
+            tmp_path = path_to_intermediate(os_path)
+
+            if not self.use_atomic_writing or not os.path.exists(tmp_path):
+                raise HTTPError(
+                    400,
+                    u"Unreadable Notebook: %s %r" % (os_path, e_orig),
+                )
+
+            # Move the bad file aside, restore the intermediate, and try again.
+            invalid_file = path_to_invalid(os_path)
+            replace_file(os_path, invalid_file)
+            replace_file(tmp_path, os_path)
+            return self._read_notebook(os_path, as_version)
+    '''
     def _read_notebook(self, os_path, as_version=4):
         """Read a notebook from an os path."""
         with self.open(os_path, 'r', encoding='utf-8') as f:
@@ -256,7 +308,6 @@ class FileManagerMixin(Configurable):
         with self.atomic_writing(os_path, encoding='utf-8') as f:
             nbformat.write(nb, f, version=nbformat.NO_CONVERT)
     '''
-
     def _save_notebook(self, os_path, nb):
         """
         Save a notebook on EOS via FUSE with the default routine.
@@ -333,7 +384,7 @@ class FileManagerMixin(Configurable):
                         "%s is not UTF-8 encoded" % os_path,
                         reason='bad format',
                     )
-        return base64.encodestring(bcontent).decode('ascii'), 'base64'
+        return encodebytes(bcontent).decode('ascii'), 'base64'
 
     def _save_file(self, os_path, content, format):
         """Save content of a generic file."""
@@ -347,7 +398,7 @@ class FileManagerMixin(Configurable):
                 bcontent = content.encode('utf8')
             else:
                 b64_bytes = content.encode('ascii')
-                bcontent = base64.decodestring(b64_bytes)
+                bcontent = decodebytes(b64_bytes)
         except Exception as e:
             raise HTTPError(
                 400, u'Encoding error saving %s: %s' % (os_path, e)
