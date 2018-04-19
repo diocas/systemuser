@@ -96,6 +96,7 @@ RUN mkdir /usr/local/lib/swan && \
 EXPOSE 8888
 
 ENV SHELL /bin/bash
+ENV SWAN_IMAGE_VERSION 3.2
 
 ADD systemuser.sh /srv/singleuser/systemuser.sh
 WORKDIR /root
