@@ -6,8 +6,6 @@ FROM cernphsft/notebook:v2.4
 
 MAINTAINER Enric Tejedor Saavedra <enric.tejedor.saavedra@cern.ch>
 
-RUN yum -y install yum-plugin-ovl # See https://github.com/CentOS/sig-cloud-instance-images/issues/15
-
 # Disable requiretty and secure path - required by systemuser.sh
 RUN yum -y install sudo && \
     sed -i'' '/Defaults \+requiretty/d'  /etc/sudoers && \
@@ -21,9 +19,6 @@ RUN yum -y install \
     libXft && \
     yum clean all && \
     rm -rf /var/cache/yum
-
-# Install requests - required by jupyterhub-singleuser
-RUN pip3 install requests
 
 # Install bs4 - required by sparkconnector.serverextension
 RUN pip3 install bs4
